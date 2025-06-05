@@ -1,8 +1,11 @@
 import struct
-from pdu_constants import *
-
-#importing the header class
-from qgp_header import qgp_header
+#importing the libraries in a way so this file can be ran in isolation for testing
+try:
+    from pdu_constants import *
+    from qgp_header import qgp_header
+except:
+    from qgp.pdu_constants import *
+    from qgp.qgp_header import qgp_header
 
 #defining the error class
 class qgp_errors:
