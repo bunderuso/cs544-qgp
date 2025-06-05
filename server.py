@@ -8,7 +8,7 @@ from qgp.qgp_communication import qgp_text_chat
 
 
 #importing non-custom libraries
-import asyncio, logging
+import asyncio, logging, threading
 from typing import Dict, Optional, Set
 
 from aioquic.asyncio import QuicConnectionProtocol, serve
