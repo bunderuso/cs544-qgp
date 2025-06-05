@@ -94,35 +94,30 @@ class qgp_server_hello:  # Renamed class for clarity
         return self.header.pack() + payload
 
     @classmethod
-    def unpack(cls, header_obj, payload_bytes):  # Changed variable names for clarity
-        if len(payload_bytes) < cls.PAYLOAD_FIXED_SIZE:
-            raise ValueError("Payload too short for ServerHelloPDU fixed part")
-
+    def unpack(cls, header, payload):  # Changed variable names for clarity
+        # defining the offset to know where everything is at
         offset = 0
-        # Unpack server_id, server_software_version, and the length of the capabilities string
-        unpacked_server_id, unpacked_server_sw_version, caps_str_len = struct.unpack_from(
-            cls.PAYLOAD_FIXED_FORMAT, payload_bytes, offset
-        )
-        offset += cls.PAYLOAD_FIXED_SIZE
 
-        if len(payload_bytes) < offset + caps_str_len:
-            raise ValueError("Payload too short for declared capabilities string")
+        # getting the client id and version and updating the offset num
+        func_server_id, func_server_version = struct.unpack_from("!H H", payload, offset)
+        offset += struct.calcsize("!H H")
 
-        unpacked_caps_str = payload_bytes[offset: offset + caps_str_len].decode("utf-8")
-        offset += caps_str_len  # Total bytes consumed from payload_bytes for this PDU's specific part
+        # getting the capalities length
+        func_cap_bytes, = struct.unpack_from("!H", payload, offset)
+        offset += struct.calcsize("!H")
 
-        # Validate the total length
-        # header_obj.message_length is the total length of (header + this payload)
-        # qgp_header.SIZE is the size of the header
-        # offset is the size of *this specific PDU's payload* that we just parsed
-        if header_obj.msg_len != qgp_header.SIZE + offset:
-            # Return string is not ideal for error handling, raise ValueError instead
-            raise ValueError(
-                f"Length mismatch in ServerHelloPDU. Header declared total: {header_obj.msg_len}, "
-                f"Expected total based on parsing: {qgp_header.SIZE + offset}"
-            )
+        # getting the actual capabilities
+        func_caps = payload[offset:offset + func_cap_bytes].decode("utf-8")
+        offset += func_cap_bytes
 
-        return cls(header_obj, unpacked_server_id, unpacked_server_sw_version, unpacked_caps_str)
+        # checking the length of the message
+        if header.msg_len != qgp_header.SIZE + offset:
+            return "Length is not expected"
+
+        # returning the PDU values
+        return cls(header, func_server_id, func_server_version, func_caps)
+
+        #return cls(header_obj, unpacked_server_id, unpacked_server_sw_version, unpacked_caps_str)
 
 
 #defining debug function for testing these two classes
