@@ -201,8 +201,8 @@ async def process_commands(command_queue: asyncio.Queue, loop: asyncio.AbstractE
                 sender(packaged_pdu)
 
         # sending the player_move command
-        elif cmd == "start_game":
-            packaged_pdu = move_player(args)
+        elif cmd == "end_game":
+            packaged_pdu = end_game(args)
 
             # checking a pdu package was returned and if so sending it
             if packaged_pdu is None:

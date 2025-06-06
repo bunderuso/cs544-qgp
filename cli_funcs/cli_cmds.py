@@ -3,7 +3,7 @@ from qgp.qgp_errors import qgp_errors
 from qgp.qgp_communication import qgp_text_chat
 from qgp.pdu_constants import *
 from qgp.qgp_player import qgp_player_movement, qgp_player_status, qgp_player_join, qgp_player_leave
-from qgp.qgp_session_mgmt import qgp_game_start
+from qgp.qgp_session_mgmt import qgp_game_start, qgp_game_end
 
 
 #defining the function to send an error
@@ -107,9 +107,121 @@ def start_game(args):
         return None
 
 #defining the function to end a match
-#TODO: FINISH ME
-# def end_game(args):
-#    if args and len(args) >= 1:
+def end_game(args):
+    #checking we have the correct number of arguments
+    if args and len(args) >= 1:
+        #defining empty lists for the needed parameters
+        match_player_ids = []
+        match_player_kills = []
+        match_player_deaths = []
+        match_player_assists = []
+        match_player_teamkills = []
+        match_player_teamdeaths = []
+        match_player_teamassists = []
+
+        #defining the list tracking vars
+        list_tracker = "ids"
+        next_var = False
+
+        # assigning each parameter to its variable
+        match_id = int(args[0])
+        match_type = int(args[1])
+        match_duration = int(args[2])
+        match_map = int(args[3])
+        match_mode = int(args[4])
+        match_team = int(args[5])
+        match_player = int(args[6])
+        match_lists = " ".join(args[7:])
+        match_lists = match_lists.split(" ")
+
+        # creating each list
+        for i in match_lists:
+            #checking if there is a comma in the index variable and removing it
+            if "," in i:
+
+                next_var = True
+
+                #removing the comma from the value
+                i = i.split(",")[0]
+
+            #adding the value to the appropriate list
+            if list_tracker == "ids":
+                match_player_ids.append(int(i))
+            elif list_tracker == "kills":
+                match_player_kills.append(int(i))
+            elif list_tracker == "deaths":
+                match_player_deaths.append(int(i))
+            elif list_tracker == "assists":
+                match_player_assists.append(int(i))
+            elif list_tracker == "teamkills":
+                match_player_teamkills.append(int(i))
+            elif list_tracker == "teamdeaths":
+                match_player_teamdeaths.append(int(i))
+            elif list_tracker == "teamassists":
+                match_player_teamassists.append(int(i))
+
+            #changing the list status for the next iteration
+            if next_var == True:
+                next_var = False
+                # updating the status
+                if list_tracker == "ids":
+                    list_tracker = "kills"
+                elif list_tracker == "kills":
+                    list_tracker = "deaths"
+                elif list_tracker == "deaths":
+                    list_tracker = "assists"
+                elif list_tracker == "assists":
+                    list_tracker = "teamkills"
+                elif list_tracker == "teamkills":
+                    list_tracker = "teamdeaths"
+                elif list_tracker == "teamdeaths":
+                    list_tracker = "teamassists"
+
+        # debug prints
+        print(f"[INFO] {match_id}: {match_type}")
+        print(f"[INFO] {match_type}: {match_duration}")
+        print(f"[INFO] {match_type}: {match_map}")
+        print(f"[INFO] {match_type}: {match_mode}")
+        print(f"[INFO] {match_type}: {match_team}")
+        print(f"[INFO] {match_type}: {match_player}")
+        print(f"[INFO] {match_type}: {match_player_ids}")
+        print(f"[INFO] kills: {match_player_kills}")
+        print(f"[INFO] deaths: {match_player_deaths}")
+        print(f"[INFO] assists: {match_player_assists}")
+        print(f"[INFO] teamkills: {match_player_teamkills}")
+        print(f"[INFO] teamdeaths: {match_player_teamdeaths}")
+        print(f"[INFO] teamassists: {match_player_teamassists}")
+
+        #creating the headers
+        end_headers = qgp_header(
+            version=1,
+            msg_type=QGP_MSG_GAME_END,
+            msg_len=0,
+            priority=0
+        )
+
+        #packing and returning the package
+        end_pdu = qgp_game_end(header=end_headers,
+                               match_id=match_id,
+                               match_type=match_type,
+                               match_duration=match_duration,
+                               match_players=match_player,
+                               match_mode=match_mode,
+                               match_team=match_team,
+                               match_player_ids=match_player_ids,
+                               match_map=match_map,
+                               match_player_kills=match_player_kills,
+                               match_player_deaths=match_player_deaths,
+                               match_player_assists=match_player_assists,
+                               match_player_teamkills=match_player_teamkills,
+                               match_player_teamdeaths=match_player_teamdeaths,
+                               match_player_teamassists=match_player_teamassists)
+
+        end_pdu_packed = end_pdu.pack()
+
+        return end_pdu_packed
+    else:
+        return None
 
 #defining the function to move the player
 def move_player(args):
@@ -232,3 +344,24 @@ def player_leave(args):
         return leave_pdu_packed
     else:
         return None
+
+#defining the debug function
+if __name__ == '__main__':
+    input_list = [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "1",
+        "1,",
+        "1,",
+        "1,",
+        "1,",
+        "1,",
+        "1,",
+        "1,",
+    ]
+
+    stuff = end_game(input_list)
