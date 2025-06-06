@@ -1,8 +1,8 @@
+#defining the message types
 QGP_MSG_SERVER_HELLO = 0x0001
 QGP_MSG_CLIENT_HELLO = 0x0002
 QGP_MSG_AUTH_REQ = 0x0003
 QGP_MSG_AUTH_RES = 0x0004
-#QGP_MSG_SERVER_ERROR = 0x0005
 QGP_MSG_Q_REQ = 0x0010 
 QGP_MSG_Q_RES = 0x0011 
 QGP_MSG_MATCH = 0x0012 
@@ -28,8 +28,11 @@ QGP_MSG_UNKNOWN_ERROR = 0x0206
 
 #Control constants
 QGP_VERSION = 1
-QGP_ALPN = ["beans"]
+QGP_ALPN = ['qgp/1.0']
 
+#defining the connection constants
+QGP_HOST = "localhost"
+QGP_PORT = 5544
 
 # --- DFA State Enumerations ---
 class ClientDFAState:

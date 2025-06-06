@@ -345,7 +345,7 @@ def sender(packaged_pdu):
 #defining the main function
 async def main():
     config = QuicConfiguration(
-        alpn_protocols=['qgp/1.0'],
+        alpn_protocols=QGP_ALPN,
         is_client=True,
     )
 
@@ -353,8 +353,8 @@ async def main():
     config.load_verify_locations(cafile="test_cert.pem")
 
     async with connect(configuration = config,
-                              port = 5544,
-                              host = "localhost",
+                              port = QGP_PORT,
+                              host = QGP_HOST,
                               create_protocol=qgp_client_protocol) as connection:
         connection.client_dfa_state = client_dfa_state.QUIC_CONNECTING
 
@@ -370,7 +370,7 @@ async def main():
 
 async def main_with_cli():
     config = QuicConfiguration(
-        alpn_protocols=['qgp/1.0'],
+        alpn_protocols=QGP_ALPN,
         is_client=True,
     )
     config.load_verify_locations(cafile="test_cert.pem")
@@ -382,8 +382,8 @@ async def main_with_cli():
     cli_thread.start()
 
     async with connect(configuration=config,
-                       port=5544,
-                       host="localhost",
+                       port=QGP_PORT,
+                       host=QGP_HOST,
                        create_protocol=qgp_client_protocol) as connection:
 
         connection.client_dfa_state = client_dfa_state.QUIC_CONNECTING

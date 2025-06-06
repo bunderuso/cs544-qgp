@@ -293,7 +293,7 @@ def sender(packaged_pdu):
 #defining the main function that does not have the CLI
 async def main():
     config = QuicConfiguration(
-        alpn_protocols=['qgp/1.0'],
+        alpn_protocols=QGP_ALPN,
         is_client=False,
     )
 
@@ -303,8 +303,8 @@ async def main():
     #starting the server
     print("Server starting")
     await serve(
-        host = "localhost",
-        port = 5544,
+        host = QGP_HOST,
+        port = QGP_PORT,
         configuration = config,
         create_protocol=qgp_server
     )
@@ -315,7 +315,7 @@ async def main():
 
 async def main_server_with_cli():
     configuration = QuicConfiguration(
-        alpn_protocols=['qgp/1.0'],  # Use your ALPN from constants
+        alpn_protocols=QGP_ALPN,
         is_client=False,
     )
     # Ensure paths to cert and key are correct
@@ -334,8 +334,8 @@ async def main_server_with_cli():
     server_transport = None
     try:
         await serve(
-            host="localhost",
-            port=5544,
+            host=QGP_HOST,
+            port=QGP_PORT,
             configuration=configuration,
             create_protocol=qgp_server
         )
