@@ -1,6 +1,30 @@
 # cs544-qgp
 This is the repo for the Quic Gaming Protocol (QGP)
 
+# Description
+This is the first version of the QGP built in Python 3. Currently it is a small tech-demo with a single client and server   
+to exchange messages in a controlled fashion. The goal of it is to show how QUIC could be used to send efficient  
+messages in a multiplayer gaming context.  
+  
+All of the messages were intended to use integers whereever possible as they are more efficient to send and allow for easier  
+process than strings. Strings are currently only used for actual messages for errors or text chats.
+
+# How to run
+## Language version
+Python 3
+
+## Required libraries
+1. threading
+2. logging
+3. struct
+4. aioquic
+5. asyncio
+6. typing
+
+## Running the files
+1. Execute the command `python3 server.py` before starting the client. The server must be running first
+2. Execute the command `python3 client.py` after starting the server. The server must be running first
+
 # Server CLI Commands
 ## send_error
 Command: `send_error`  
