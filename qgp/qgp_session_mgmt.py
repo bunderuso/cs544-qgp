@@ -49,7 +49,7 @@ class qgp_game_start:
 
         # Update header attributes before packing the header
         self.header.msg_len = qgp_header.SIZE + len(payload)  # Use header.message_length
-        self.header.msg_type = QGP_MSG_GAME_START
+        #self.header.msg_type = QGP_MSG_GAME_START
 
         return self.header.pack() + payload
 

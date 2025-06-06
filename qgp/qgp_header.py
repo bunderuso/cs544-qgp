@@ -16,6 +16,7 @@ class qgp_header:
 
     #defining function to package the headers
     def pack(self):
+        print("Packing with", self.FORMAT, self.msg_type, self.msg_len, self.priority)
         return struct.pack(self.FORMAT, self.version, self.msg_type, self.msg_len, self.priority)
 
     @classmethod
@@ -25,6 +26,7 @@ class qgp_header:
             return "Header length not the valid length"
 
         #unpacking the header and saving to the class variables
+        print("Unpacking with", cls.FORMAT)
         func_version, func_msg_type, func_msg_len, func_priority = struct.unpack(cls.FORMAT, data[:cls.SIZE])
         remaining_data = data[cls.SIZE:]
         return cls(func_version, func_msg_type, func_msg_len, func_priority), remaining_data

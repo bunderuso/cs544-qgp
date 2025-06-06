@@ -29,7 +29,7 @@ class qgp_errors:
 
         # packing the headers
         self.header.msg_len = qgp_header.SIZE + len(payload)
-        self.header.msg_type = QGP_MSG_CLIENT_HELLO
+        #self.header.msg_type = QGP_MSG_CLIENT_HELLO
 
         # returning the packed payload
         return self.header.pack() + payload

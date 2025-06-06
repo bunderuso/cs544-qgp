@@ -27,7 +27,7 @@ class qgp_text_chat:
 
         # packing the headers
         self.header.msg_len = qgp_header.SIZE + len(payload)
-        self.header.msg_type = QGP_MSG_CLIENT_HELLO
+        #self.header.msg_type = QGP_MSG_TEXT_CHAT
 
         # returning the packed payload
         return self.header.pack() + payload

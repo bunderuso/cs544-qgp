@@ -66,6 +66,102 @@ class qgp_player_movement:
 
         # returning the PDU values
         return cls(header, func_player_id, func_movement_type, func_direction, func_x_position, func_y_position, func_z_position, func_speed)
+
+#defining class to join a match
+class qgp_player_join:
+    FORMAT = "!I I I"
+
+    #defining the class variables
+    def __init__(self, header, player_id, match_id, player_team):
+        self.header = header
+        self.player_id = player_id
+        self.match_id = match_id
+        self.player_team = player_team
+
+    #defining the packing class
+    def pack(self):
+        payload = struct.pack(self.FORMAT, self.player_id, self.match_id, self.player_team)
+        self.header.msg_len = qgp_header.SIZE + len(payload)
+        self.header.msg_type = QGP_MSG_PLAYER_JOIN
+        return self.header.pack() + payload
+
+    #defining the unpacking class
+    @classmethod
+    def unpack(cls, header, payload):
+        offset = 0
+        func_player_id, func_match_id, func_player_team = struct.unpack_from(cls.FORMAT, payload, offset)
+        offset += struct.calcsize(cls.FORMAT)
+
+        # checking the length of the message
+        if header.msg_len != qgp_header.SIZE + offset:
+            return "Length is not expected"
+
+        #returning the unpacked values
+        return cls(header, func_player_id, func_match_id, func_player_team)
+
+#defining the class for player leaving
+class qgp_player_leave:
+    FORMAT = "!I I I"
+
+    # defining the class variables
+    def __init__(self, header, player_id, match_id, player_team):
+        self.header = header
+        self.player_id = player_id
+        self.match_id = match_id
+        self.player_team = player_team
+
+    # defining the packing class
+    def pack(self):
+        payload = struct.pack(self.FORMAT, self.player_id, self.match_id, self.player_team)
+        self.header.msg_len = qgp_header.SIZE + len(payload)
+        self.header.msg_type = QGP_MSG_PLAYER_JOIN
+        return self.header.pack() + payload
+
+    # defining the unpacking class
+    @classmethod
+    def unpack(cls, header, payload):
+        offset = 0
+        func_player_id, func_match_id, func_player_team = struct.unpack_from(cls.FORMAT, payload, offset)
+        offset += struct.calcsize(cls.FORMAT)
+
+        # checking the length of the message
+        if header.msg_len != qgp_header.SIZE + offset:
+            return "Length is not expected"
+
+        # returning the unpacked values
+        return cls(header, func_player_id, func_match_id, func_player_team)
+
+#defining class for the player status
+class qgp_player_status:
+    FORMAT = "!I I I"
+
+    #defining the class variables
+    def __init__(self, header, player_id, player_health, player_dmg_taken):
+        self.header = header
+        self.player_id = player_id
+        self.player_health = player_health
+        self.player_dmg_taken = player_dmg_taken
+
+    #defining class to pack these values
+    def pack(self):
+        payload = struct.pack(self.FORMAT, self.player_id, self.player_health, self.player_dmg_taken)
+        self.header.msg_len = qgp_header.SIZE + len(payload)
+        self.header.msg_type = QGP_MSG_PLAYER_STATUS
+        return self.header.pack() + payload
+
+    @classmethod
+    def unpack(cls, header, payload):
+        offset = 0
+        func_player_id, func_health, func_dmg_taken = struct.unpack_from(cls.FORMAT, payload, offset)
+        offset += struct.calcsize(cls.FORMAT)
+
+        #checking the length is expected
+        if header.msg_len != qgp_header.SIZE + offset:
+            return "Length is not expected"
+
+        #returning the unpacked data
+        return cls(header, func_player_id, func_health, func_dmg_taken)
+
     
 #defining debug function
 if __name__ == "__main__":
