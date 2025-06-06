@@ -224,18 +224,8 @@ async def process_commands(command_queue: asyncio.Queue, loop: asyncio.AbstractE
             else:
                 sender(packaged_pdu)
 
-        # sending the start_game command
-        elif cmd == "start_game":
-            packaged_pdu = start_game(args)
-
-            # checking a pdu package was returned and if so sending it
-            if packaged_pdu is None:
-                print("Invalid arguments provided")
-            else:
-                sender(packaged_pdu)
-
         # sending the player_move command
-        elif cmd == "start_game":
+        elif cmd == "player_move":
             packaged_pdu = move_player(args)
 
             # checking a pdu package was returned and if so sending it
@@ -243,6 +233,37 @@ async def process_commands(command_queue: asyncio.Queue, loop: asyncio.AbstractE
                 print("Invalid arguments provided")
             else:
                 sender(packaged_pdu)
+
+        # sending the player_join command
+        elif cmd == "player_join":
+            packaged_pdu = player_join(args)
+
+            # checking a pdu package was returned and if so sending it
+            if packaged_pdu is None:
+                print("Invalid arguments provided")
+            else:
+                sender(packaged_pdu)
+
+        # sending the player_leave command
+        elif cmd == "player_leave":
+            packaged_pdu = player_leave(args)
+
+            # checking a pdu package was returned and if so sending it
+            if packaged_pdu is None:
+                print("Invalid arguments provided")
+            else:
+                sender(packaged_pdu)
+
+        # sending the player_leave command
+        elif cmd == "player_status":
+            packaged_pdu = player_status(args)
+
+            # checking a pdu package was returned and if so sending it
+            if packaged_pdu is None:
+                print("Invalid arguments provided")
+            else:
+                sender(packaged_pdu)
+
 
         elif cmd == "list_clients":
             if not ACTIVE_CLIENTS:
