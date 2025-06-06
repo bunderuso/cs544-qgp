@@ -94,7 +94,7 @@ class qgp_game_start:
         # offset is the total size of THIS PDU's specific payload that we just parsed from payload_bytes
         if header_obj.msg_len != qgp_header.SIZE + offset:
             raise ValueError(
-                f"Length mismatch in qgp_game_start. Header declared total: {header_obj.message_length}, "
+                f"Length mismatch in qgp_game_start. Header declared total: {header_obj.msg_len}, "
                 f"Expected total based on parsing current PDU payload: {qgp_header.SIZE + offset}"
             )
 
@@ -178,7 +178,7 @@ class qgp_game_end:
 
         # Update header attributes before packing the header
         self.header.msg_len = qgp_header.SIZE + len(payload)  # Use header.message_length
-        self.header.msg_type = QGP_MSG_GAME_START
+        self.header.msg_type = QGP_MSG_GAME_END
 
         return self.header.pack() + payload
 
@@ -212,17 +212,51 @@ class qgp_game_end:
         len_player_list, = struct.unpack_from(cls.PLAYER_ID_LIST_COUNT_FORMAT, payload_bytes, offset)
         offset += cls.PLAYER_ID_LIST_COUNT_SIZE
 
-        # Unpack the player_ids themselves
-        match_player_ids = []
-        if len_player_list > 0:
-            player_ids_bytes_expected = len_player_list * struct.calcsize(cls.PLAYER_ID_FORMAT)
-            if len(payload_bytes) < offset + player_ids_bytes_expected:
-                raise ValueError("Payload too short for the declared number of player_ids.")
+        # # Unpack the player_ids themselves
+        # match_player_ids = []
+        # if len_player_list > 0:
+        #     player_ids_bytes_expected = len_player_list * struct.calcsize(cls.PLAYER_ID_FORMAT)
+        #     if len(payload_bytes) < offset + player_ids_bytes_expected:
+        #         raise ValueError("Payload too short for the declared number of player_ids.")
+        #
+        #     player_ids_format = "!" + (len_player_list * "I")  # Assuming each ID is 'I'
+        #     unpacked_ids_tuple = struct.unpack_from(player_ids_format, payload_bytes, offset)
+        #     match_player_ids = list(unpacked_ids_tuple)
+        #     offset += player_ids_bytes_expected
 
-            player_ids_format = "!" + (len_player_list * "I")  # Assuming each ID is 'I'
-            unpacked_ids_tuple = struct.unpack_from(player_ids_format, payload_bytes, offset)
-            match_player_ids = list(unpacked_ids_tuple)
-            offset += player_ids_bytes_expected
+        #getting the player ids
+        player_ids, offset = cls.list_unpacker(len_player_list, payload_bytes, offset, cls.PLAYER_ID_FORMAT)
+
+        #getting the player kills
+        len_kills_list, = struct.unpack_from(cls.PLAYER_ID_LIST_COUNT_FORMAT, payload_bytes, offset)
+        offset += cls.PLAYER_ID_LIST_COUNT_SIZE
+        player_kills, offset = cls.list_unpacker(len_kills_list, payload_bytes, offset, cls.PLAYER_ID_FORMAT)
+
+        # getting the player deaths
+        len_deaths_list, = struct.unpack_from(cls.PLAYER_ID_LIST_COUNT_FORMAT, payload_bytes, offset)
+        offset += cls.PLAYER_ID_LIST_COUNT_SIZE
+        player_deaths, offset = cls.list_unpacker(len_deaths_list, payload_bytes, offset, cls.PLAYER_ID_FORMAT)
+
+        # getting the player assists
+        len_assists_list, = struct.unpack_from(cls.PLAYER_ID_LIST_COUNT_FORMAT, payload_bytes, offset)
+        offset += cls.PLAYER_ID_LIST_COUNT_SIZE
+        player_assists, offset = cls.list_unpacker(len_assists_list, payload_bytes, offset, cls.PLAYER_ID_FORMAT)
+
+        # getting the player teamkills
+        len_teamkills_list, = struct.unpack_from(cls.PLAYER_ID_LIST_COUNT_FORMAT, payload_bytes, offset)
+        offset += cls.PLAYER_ID_LIST_COUNT_SIZE
+        player_teamkills, offset = cls.list_unpacker(len_teamkills_list, payload_bytes, offset, cls.PLAYER_ID_FORMAT)
+
+        # getting the player teamkills
+        len_teamdeaths_list, = struct.unpack_from(cls.PLAYER_ID_LIST_COUNT_FORMAT, payload_bytes, offset)
+        offset += cls.PLAYER_ID_LIST_COUNT_SIZE
+        player_teamdeaths, offset = cls.list_unpacker(len_teamdeaths_list, payload_bytes, offset, cls.PLAYER_ID_FORMAT)
+
+        # getting the player teamkills
+        len_teamassits_list, = struct.unpack_from(cls.PLAYER_ID_LIST_COUNT_FORMAT, payload_bytes, offset)
+        offset += cls.PLAYER_ID_LIST_COUNT_SIZE
+        player_teamassists, offset = cls.list_unpacker(len_teamassits_list, payload_bytes, offset, cls.PLAYER_ID_FORMAT)
+
 
         # Validate total length against header.message_length
         # header_obj.message_length is the total length (header + this specific payload)
@@ -230,13 +264,30 @@ class qgp_game_end:
         # offset is the total size of THIS PDU's specific payload that we just parsed from payload_bytes
         if header_obj.msg_len != qgp_header.SIZE + offset:
             raise ValueError(
-                f"Length mismatch in qgp_game_start. Header declared total: {header_obj.message_length}, "
+                f"Length mismatch in qgp_game_start. Header declared total: {header_obj.msg_len}, "
                 f"Expected total based on parsing current PDU payload: {qgp_header.SIZE + offset}"
             )
 
         return cls(header_obj, match_id, match_type, match_duration, match_map,
-                   match_mode, match_team, match_players, match_player_ids)
+                   match_mode, match_team, match_players, player_ids, player_kills, player_deaths, player_assists, player_teamkills, player_teamdeaths, player_teamassists)
 
+    @classmethod
+    def list_unpacker(cls, list_len, payload_bytes, offset, FORMAT="!I"):
+        # Unpack the player_ids themselves
+        match_player_ids = []
+        if list_len > 0:
+            bytes_expected = list_len * struct.calcsize(FORMAT)
+            if len(payload_bytes) < offset + bytes_expected:
+                raise ValueError("Payload too short for the declared number of bytes")
+
+            player_ids_format = "!" + (list_len * "I")  # Assuming each ID is 'I'
+            unpacked_ids_tuple = struct.unpack_from(player_ids_format, payload_bytes, offset)
+            returned_list = list(unpacked_ids_tuple)
+            offset += bytes_expected
+
+            return returned_list, offset
+        else:
+            return [], offset
 #defining debug function
 if __name__ == "__main__":
     ############################################################################
