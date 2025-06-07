@@ -436,6 +436,14 @@ async def main():
 
 
 async def main_server_with_cli():
+    #asking user for host and port
+    host = input("[Server CLI] Host IP: ")
+    port = input("[Server CLI] Port number or leave blank for default: ")
+    if port == "":
+        port = 5544
+    else:
+        port = int(port)
+
     configuration = QuicConfiguration(
         alpn_protocols=QGP_ALPN,
         is_client=False,
@@ -460,8 +468,8 @@ async def main_server_with_cli():
     server_transport = None
     try:
         await serve(
-            host=QGP_HOST,
-            port=QGP_PORT,
+            host=host,
+            port=port,
             configuration=configuration,
             create_protocol=qgp_server
         )

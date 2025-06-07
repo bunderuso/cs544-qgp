@@ -438,6 +438,14 @@ async def main():
         print("Client connected")
 
 async def main_with_cli():
+    # asking user for host and port
+    host = input("[Client CLI] Host IP: ")
+    port = input("[Client CLI] Port number or leave blank for default: ")
+    if port == "":
+        port = 5544
+    else:
+        port = int(port)
+
     config = QuicConfiguration(
         alpn_protocols=QGP_ALPN,
         is_client=True,
@@ -452,8 +460,8 @@ async def main_with_cli():
     cli_thread.start()
 
     async with connect(configuration=config,
-                       port=QGP_PORT,
-                       host=QGP_HOST,
+                       port=port,
+                       host=host,
                        create_protocol=qgp_client_protocol) as connection:
 
         connection.client_dfa_state = client_dfa_state.QUIC_CONNECTING
