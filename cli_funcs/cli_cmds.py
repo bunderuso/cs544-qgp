@@ -7,7 +7,7 @@ from qgp.qgp_session_mgmt import qgp_game_start, qgp_game_end
 
 
 #defining the function to send an error
-def error_sender(args):
+def server_error_sender(args):
     #checking the correct number of args were sent, if not returning None
     if args and len(args) >= 3:
         #moving the args to their respective variables
@@ -23,6 +23,35 @@ def error_sender(args):
         chat_header = qgp_header(
             version=1,
             msg_type=QGP_MSG_SERVER_ERROR,
+            msg_len=0,
+            priority=1
+        )
+        error_pdu = qgp_errors(chat_header, error_code, error_length, error_severity, error_message)
+        error_pdu_packed = error_pdu.pack()
+
+        #returning the error package
+        return error_pdu_packed
+
+    else:
+        return None
+
+#defining the function to send an error
+def client_error_sender(args):
+    #checking the correct number of args were sent, if not returning None
+    if args and len(args) >= 3:
+        #moving the args to their respective variables
+        error_code = int(args[0])
+        error_message = " ".join(args[2:])
+        error_severity = int(args[1])
+        error_length = len(error_message)
+
+        print(f"[ERROR] {error_code}: {error_message}")
+        print(f"[ERROR] {error_severity}: {error_length}")
+
+        #creating the error package
+        chat_header = qgp_header(
+            version=1,
+            msg_type=QGP_MSG_CLIENT_ERROR,
             msg_len=0,
             priority=1
         )

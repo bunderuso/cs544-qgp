@@ -114,7 +114,7 @@ class qgp_player_leave:
     def pack(self):
         payload = struct.pack(self.FORMAT, self.player_id, self.match_id, self.player_team)
         self.header.msg_len = qgp_header.SIZE + len(payload)
-        self.header.msg_type = QGP_MSG_PLAYER_JOIN
+        self.header.msg_type = QGP_MSG_PLAYER_LEAVE
         return self.header.pack() + payload
 
     # defining the unpacking class

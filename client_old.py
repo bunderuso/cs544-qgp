@@ -26,6 +26,9 @@ class client_dfa_state:
     AWAITING_SERVER_HELLO = 2
     HANDSHAKE_COMPLETED = 3
     TERMINATING = 4
+    IN_GAME = 5
+    GAME_OVER = 6
+    IDLE = 7
 
 #defining the client class for QUIC
 class qgp_client_protocol(QuicConnectionProtocol):
@@ -86,44 +89,110 @@ class qgp_client_protocol(QuicConnectionProtocol):
                 print("Error length:", error.error_length)
                 print("Error message:", error.error_message)
                 print("Error severity:", error.severity)
+            else:
 
-            #checking the DFA status
-            if self.current_dfa_state == client_dfa_state.AWAITING_SERVER_HELLO:
-                #checking the message type
-                if headers.msg_type == QGP_MSG_SERVER_HELLO:
-                    print("message len", headers.msg_len)
-                    server_hello = qgp_server_hello.unpack(headers, payload)
+                #checking the DFA status
+                if self.current_dfa_state == client_dfa_state.AWAITING_SERVER_HELLO:
+                    #checking the message type
+                    if headers.msg_type == QGP_MSG_SERVER_HELLO:
+                        print("message len", headers.msg_len)
+                        server_hello = qgp_server_hello.unpack(headers, payload)
 
-                    print("Received server hello")
-                    print("server id:", server_hello.server_id)
-                    print("server version", server_hello.server_software_version)
-                    print("server capabilities:", server_hello.capabilities_str)
+                        print("Received server hello")
+                        print("server id:", server_hello.server_id)
+                        print("server version", server_hello.server_software_version)
+                        print("server capabilities:", server_hello.capabilities_str)
 
-                    #updating the DFA
-                    self.current_dfa_state = client_dfa_state.HANDSHAKE_COMPLETED
+                        #updating the DFA
+                        self.current_dfa_state = client_dfa_state.HANDSHAKE_COMPLETED
+
+                    else:
+                        print("Invalid message, closing connection")
+                        self.close()
+
+                #this can happen after the initial connection or the client is out of the game
+                elif self.current_dfa_state == client_dfa_state.HANDSHAKE_COMPLETED or self.current_dfa_state == client_dfa_state.GAME_OVER:
+                    #checking the message type
+                    if headers.msg_type == QGP_MSG_GAME_START:
+                        print("Game start message received")
+                        game_start = qgp_game_start.unpack(headers, payload)
+
+                        #printing the details of the payload
+                        print(f"[INFO] Match ID: {game_start.match_id}")
+                        print(f"[INFO] Match Type: {game_start.match_type}")
+                        print(f"[INFO] Match Duration: {game_start.match_duration}")
+                        print(f"[INFO] Match Map: {game_start.match_map}")
+                        print(f"[INFO] Match Mode: {game_start.match_mode}")
+                        print(f"[INFO] Match Team: {game_start.match_team}")
+                        print(f"[INFO] Match Players: {game_start.match_players}")
+                        print(f"[INFO] Match Player IDs: {game_start.match_player_ids}")
+
+                        #updating the client dfa
+                        self.current_dfa_state = client_dfa_state.IN_GAME
+
+                    else:
+                        print("Server sent a packet outside of valid headers")
+                        print("Sending a client error")
+                        args = ["6", "0", "Client sent a packet outside of valid headers"]
+                        packaged_pdu = server_error_sender(args)
+                        # checking a pdu package was returned and if so sending it
+                        if packaged_pdu is None:
+                            print("Invalid arguments provided")
+                        else:
+                            sender(packaged_pdu)
+
+
+
+                elif self.current_dfa_state == client_dfa_state.IN_GAME:
+                    #checking the message type
+                    if headers.msg_type == QGP_MSG_TEXT_CHAT:
+                        print("Chat message received")
+                        server_chat = qgp_text_chat.unpack(headers, payload)
+
+                        print("Received server chat message:", server_chat.text)
+                    elif headers.msg_type == QGP_MSG_GAME_END:
+                        print("Game end message received")
+                        game_end = qgp_game_end.unpack(headers, payload)
+
+                        # printing the details of the payload
+                        print(f"[INFO] Match ID: {game_end.match_id}")
+                        print(f"[INFO] Match Type: {game_end.match_type}")
+                        print(f"[INFO] Match Duration: {game_end.match_duration}")
+                        print(f"[INFO] Match Map: {game_end.match_map}")
+                        print(f"[INFO] Match Mode: {game_end.match_mode}")
+                        print(f"[INFO] Match Team: {game_end.match_team}")
+                        print(f"[INFO] Match Players: {game_end.match_players}")
+                        print(f"[INFO] Match Player IDs: {game_end.match_player_ids}")
+                        print(f"[INFO] Match Player Kills: {game_end.match_player_kills}")
+                        print(f"[INFO] Match Player Deaths: {game_end.match_player_deaths}")
+                        print(f"[INFO] Match Player Assists: {game_end.match_player_assists}")
+                        print(f"[INFO] Match Player TeamKills: {game_end.match_player_teamkills}")
+                        print(f"[INFO] Match Player TeamDeaths: {game_end.match_player_teamdeaths}")
+                        print(f"[INFO] Match Player TeamAssists: {game_end.match_player_teamassists}")
+
+                        #changing the dfa status
+                        self.current_dfa_state = client_dfa_state.GAME_OVER
+                    else:
+                        print("Server sent a packet outside of valid headers")
+                        print("Sending a client error")
+                        args = ["6", "0", "Client sent a packet outside of valid headers"]
+                        packaged_pdu = server_error_sender(args)
+                        # checking a pdu package was returned and if so sending it
+                        if packaged_pdu is None:
+                            print("Invalid arguments provided")
+                        else:
+                            sender(packaged_pdu)
 
                 else:
-                    print("Invalid message, closing connection")
-                    self.close()
-
-            elif self.current_dfa_state == client_dfa_state.HANDSHAKE_COMPLETED:
-                #checking the message type
-                if headers.msg_type == QGP_MSG_SERVER_ERROR:
-                    print("Error received")
-                    error = qgp_errors.unpack(headers, payload)
-
-                    print("Error code:", error.error_code)
-                    print("Error length:", error.error_length)
-                    print("Error message:", error.error_message)
-                    print("Error severity:", error.severity)
-
-            elif self.current_dfa_state == client_dfa_state.HANDSHAKE_COMPLETED: #TODO: UPDATE THE DFA
-                #checking the message type
-                if headers.msg_type == QGP_MSG_TEXT_CHAT:
-                    print("Chat message received")
-                    server_chat = qgp_text_chat.unpack(headers, payload)
-
-                    print("Received server chat message:", server_chat.text)
+                    print("Server sent a packet outside of next expected state")
+                    print("Sending a client error")
+                    args = ["7", "0", "Received packet outside of next expected state"]
+                    packaged_pdu = client_error_sender(args)
+                    # checking a pdu package was returned and if so sending it
+                    if packaged_pdu is None:
+                        print("Invalid arguments provided")
+                    else:
+                        sender(packaged_pdu)
 
     def send_qgp_client_hello(self):
         stream_id = 0
@@ -207,7 +276,7 @@ async def process_commands(command_queue: asyncio.Queue, loop: asyncio.AbstractE
 
         # sending the error command
         elif cmd == "send_error":
-            packaged_pdu = error_sender(args)
+            packaged_pdu = client_error_sender(args)
 
             # checking a pdu package was returned and if so sending it
             if packaged_pdu is None:
@@ -374,6 +443,7 @@ async def main_with_cli():
         is_client=True,
     )
     config.load_verify_locations(cafile="test_cert.pem")
+    config.idle_timeout = 1200
 
     command_queue = asyncio.Queue()
     loop = asyncio.get_running_loop()
