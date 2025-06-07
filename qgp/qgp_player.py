@@ -7,14 +7,6 @@ except:
     from qgp.pdu_constants import *
     from qgp.qgp_header import qgp_header
 
-# class qgp_player_join:
-#     #defining the class veriables
-#     def __init__(self, client_class):
-#             self.player_id = player_id
-#             self.player_name_length = player_name_length
-#             self.player_name = player_name
-#
-
 #defining a class for player movement
 class qgp_player_movement:
     FORMAT = "!I I I I I I I"

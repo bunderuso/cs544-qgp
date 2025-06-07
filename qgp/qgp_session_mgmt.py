@@ -102,7 +102,6 @@ class qgp_game_start:
                    match_mode, match_team, match_players, match_player_ids)
 
 #defining class for a match ending
-#TODO: Finish this class
 class qgp_game_end:
     # Fixed part of the payload format before the list count and list itself
     # match_id (I), match_type (I), match_duration (I), match_map (I),
@@ -314,13 +313,12 @@ if __name__ == "__main__":
     start_match_headers, start_match_payload = qgp_header.unpack(start_match_packed)
 
     # testing the unpacking
-    start_match_unpacked = start_match_class.unpack(start_match_headers, start_match_payload)
-    print("move_unpacked", start_match_unpacked)
-    print("header", move_unpacked.header)
-    print("move player id", move_unpacked.player_id)
-    print("move direction", move_unpacked.direction)
-    print("move x", move_unpacked.x_position)
-    print("move y", move_unpacked.y_position)
-    print("move z", move_unpacked.z_position)
-    print("move speed", move_unpacked.speed)
-    print("move type", move_unpacked.movement_type)
+    game_start = start_match_class.unpack(start_match_headers, start_match_payload)
+    print(f"[INFO] Match ID: {game_start.match_id}")
+    print(f"[INFO] Match Type: {game_start.match_type}")
+    print(f"[INFO] Match Duration: {game_start.match_duration}")
+    print(f"[INFO] Match Map: {game_start.match_map}")
+    print(f"[INFO] Match Mode: {game_start.match_mode}")
+    print(f"[INFO] Match Team: {game_start.match_team}")
+    print(f"[INFO] Match Players: {game_start.match_players}")
+    print(f"[INFO] Match Player IDs: {game_start.match_player_ids}")
