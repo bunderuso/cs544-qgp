@@ -53,7 +53,9 @@ Each file in this project was designed with a `if __name__ == "__main__:` debug 
 
 ## Running the server and client
 1. Execute the command `python3 server.py` before starting the client. The server must be running first
+   1. When executed enter the host and port number to run on. If no port is specified it will default to `5544`
 2. Execute the command `python3 client.py` after starting the server. The server must be running first
+   1. When executed enter the host and port number to run on. If no port is specified it will default to `5544`
 
 # Server CLI Commands
 ## send_error

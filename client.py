@@ -205,12 +205,14 @@ class qgp_client_protocol(QuicConnectionProtocol):
         self.current_dfa_state = client_dfa_state.AWAITING_SERVER_HELLO
         print("client hello sent")
 
-    async def send_qgp_pdu(self, pdu_instance, stream_id_to_use: Optional[int] = None, end_stream=False):
-        """Helper method to pack and send a QGP PDU."""
-        peer_display = self.resolved_peer_address if self.resolved_peer_address else "Peer"
-
-        # packed_pdu = pdu_instance.pack()
+    #helper method to send PDUs to server
+    async def send_qgp_pdu(self, pdu_instance, dfa_status, stream_id_to_use: Optional[int] = None, end_stream=False):
+        #using the packed PDU
         packed_pdu = pdu_instance
+
+        # changing the DFA if needed
+        if dfa_status is not None:
+            self.current_dfa_state = dfa_status
 
         if stream_id_to_use is None:
             stream_id = self._quic.get_next_available_stream_id(
@@ -219,10 +221,6 @@ class qgp_client_protocol(QuicConnectionProtocol):
             stream_id = stream_id_to_use
         print("Stream id", stream_id)
 
-        # pdu_type_to_log = pdu_instance.header.msg_type if hasattr(pdu_instance, 'header') else 'UnknownType'
-
-        # print(
-        #    f"[Server] Sending PDU type {pdu_type_to_log} ({len(packed_pdu)} bytes) to {peer_display} on stream {stream_id}")
         self._quic.send_stream_data(stream_id, packed_pdu, end_stream=True)
         self.transmit()
         print("Sent response")
@@ -306,22 +304,24 @@ async def process_commands(command_queue: asyncio.Queue, loop: asyncio.AbstractE
         # sending the player_join command
         elif cmd == "player_join":
             packaged_pdu = player_join(args)
+            dfa = client_dfa_state.IN_GAME
 
             # checking a pdu package was returned and if so sending it
             if packaged_pdu is None:
                 print("Invalid arguments provided")
             else:
-                sender(packaged_pdu)
+                sender(packaged_pdu, dfa)
 
         # sending the player_leave command
         elif cmd == "player_leave":
             packaged_pdu = player_leave(args)
+            dfa = client_dfa_state.GAME_OVER
 
             # checking a pdu package was returned and if so sending it
             if packaged_pdu is None:
                 print("Invalid arguments provided")
             else:
-                sender(packaged_pdu)
+                sender(packaged_pdu, dfa)
 
         # sending the player_leave command
         elif cmd == "player_status":
@@ -392,24 +392,25 @@ def cli_input_loop(loop: asyncio.AbstractEventLoop, command_queue: asyncio.Queue
     finally:
         print("[Server CLI] Input loop ended.")
 
-# defining function to send the package pdu
-def sender(packaged_pdu):
-    # getting the active clients
+#defining function to send the package pdu
+def sender(packaged_pdu, dfa_status = None):
+    #getting the active clients
     clients_to_send_snapshot = list(ACTIVE_CLIENTS)
     if not clients_to_send_snapshot:
-        print("[Server CLI] No active clients to broadcast to.")
+        print("[client CLI] No active servers to broadcast to.")
 
-    # looping through the active clients and sending the error
+    #looping through the active clients and sending the error
     print(clients_to_send_snapshot)
     for client_protocol in clients_to_send_snapshot:
         if hasattr(client_protocol, 'send_qgp_pdu') and client_protocol._quic is not None:
             # Use asyncio.create_task for safety from within another coroutine
-            asyncio.create_task(client_protocol.send_qgp_pdu(packaged_pdu, stream_id_to_use=None))
+            asyncio.create_task(client_protocol.send_qgp_pdu(packaged_pdu, dfa_status=dfa_status, stream_id_to_use=None))
+
         else:
             peer_addr_display = client_protocol.resolved_peer_address if hasattr(client_protocol,
-                                                                                 'resolved_peer_address') and client_protocol.resolved_peer_address else "Unknown Client"
+                                                                                 'resolved_peer_address') and client_protocol.resolved_peer_address else "Unknown Sever"
             print(
-                f"[Server CLI] Cannot send to client {peer_addr_display}: missing send_qgp_pdu or not fully connected.")
+                f"[Client CLI] Cannot send to server {peer_addr_display}: missing send_qgp_pdu or not fully connected.")
 
 #defining the main function
 async def main():

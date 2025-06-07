@@ -16,8 +16,8 @@ def server_error_sender(args):
         error_severity = int(args[1])
         error_length = len(error_message)
 
-        print(f"[ERROR] {error_code}: {error_message}")
-        print(f"[ERROR] {error_severity}: {error_length}")
+        print(f"[ERROR] Error code - {error_code}: Error Message - {error_message}")
+        print(f"[ERROR] Error severity - {error_severity}: Error length - {error_length}")
 
         #creating the error package
         chat_header = qgp_header(
@@ -45,8 +45,8 @@ def client_error_sender(args):
         error_severity = int(args[1])
         error_length = len(error_message)
 
-        print(f"[ERROR] {error_code}: {error_message}")
-        print(f"[ERROR] {error_severity}: {error_length}")
+        print(f"[ERROR] Error code - {error_code}: Error Message - {error_message}")
+        print(f"[ERROR] Error severity - {error_severity}: Error length - {error_length}")
 
         #creating the error package
         chat_header = qgp_header(

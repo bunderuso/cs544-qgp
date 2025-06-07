@@ -139,7 +139,7 @@ class qgp_server(QuicConnectionProtocol):
                         #outputting the player status
                         print(f"[INFO] Player ID: {player_status.player_id}")
                         print(f"[INFO] Player Health: {player_status.player_health}")
-                        print(f"[INFO] Player Damage: {player_status.player_damage}")
+                        print(f"[INFO] Player Damage: {player_status.player_dmg_taken}")
 
                     elif headers.msg_type == QGP_MSG_PLAYER_LEAVE:
                         #unpacking the leave
@@ -148,15 +148,17 @@ class qgp_server(QuicConnectionProtocol):
                         #outtputting the leave details
                         print(f"[INFO] Player ID: {player_leave.player_id}")
                         print(f"[INFO] Match ID: {player_leave.match_id}")
-                        print(f"[INFO] Player Team: {player_leave.team}")
+                        print(f"[INFO] Player Team: {player_leave.player_team}")
+
+                        self.current_dfa_state = server_client_dfa.CLIENT_CONNECTED_IDLE
 
                     elif headers.msg_type == QGP_MSG_TEXT_CHAT:
                         #unpacking the payload
                         chat_payload = qgp_text_chat.unpack(headers, payload)
 
                         #printing the message
-                        print(f"[INFO] Text: {chat_payload.text}")
-                        print(f"[INFO] Text Length: {chat_payload.text_length}")
+                        print(f"[INFO] Message Text: {chat_payload.text}")
+                        print(f"[INFO] Message Text Length: {chat_payload.text_length}")
 
                     else:
                         print("Client sent a packet outside of valid headers")
@@ -182,7 +184,9 @@ class qgp_server(QuicConnectionProtocol):
                         #outputting the details
                         print(f"[INFO] Player ID: {player_join.player_id}")
                         print(f"[INFO] Match ID: {player_join.match_id}")
-                        print(f"[INFO] Player Team: {player_join.team}")
+                        print(f"[INFO] Player Team: {player_join.player_team}")
+
+                        self.current_dfa_state = server_client_dfa.CLIENT_IN_GAME
 
                     else:
                         print("Client sent a packet outside of valid headers")
