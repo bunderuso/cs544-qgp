@@ -1,345 +1,459 @@
-import asyncio
-import logging
-import threading
-from typing import Dict, Optional, Set, Tuple
+#importing the custom libraires
+from aioquic.quic import events
+
+from qgp.pdu_constants import QGP_MSG_CLIENT_ERROR, QGP_MSG_CLIENT_HELLO, QGP_MSG_SERVER_HELLO
+from qgp.qgp_hello import qgp_client_hello, qgp_server_hello
+from qgp.qgp_header import qgp_header
+from qgp.qgp_communication import qgp_text_chat
+
+#importing the cli library
+from cli_funcs.cli_cmds import *
+
+
+#importing non-custom libraries
+import asyncio, logging, threading
+from typing import Dict, Optional, Set
 
 from aioquic.asyncio import QuicConnectionProtocol, serve
 from aioquic.quic.configuration import QuicConfiguration
 from aioquic.quic.events import QuicEvent, StreamDataReceived, HandshakeCompleted, ConnectionTerminated
 
-# QGP Package imports
-from qgp.pdu_constants import *
-from qgp.qgp_header import qgp_header
-from qgp.qgp_hello import qgp_client_hello, qgp_server_hello
-from qgp.qgp_communication import qgp_text_chat
-from qgp.qgp_player import qgp_player_movement  # Add qgp_player_action if used
-from qgp.qgp_session_mgmt import qgp_game_start, qgp_game_end  # Add others as needed
-from qgp.qgp_errors import qgp_errors
-
+#tracking the connected clients
 ACTIVE_CLIENTS: Set[QuicConnectionProtocol] = set()
-NEXT_CLIENT_QGP_ID = 1001  # Simple way to assign unique QGP IDs to clients
 
+#defining a temporary DFA
+class server_client_dfa:
+    AWAITING_CLIENT_HELLO = 1
+    AWAITING_FURTHER_CLIENT_ACTION = 2
+    CLIENT_CONNECTED_IDLE = 3  # Handshake & Auth complete
+    CLIENT_IN_QUEUE = 4
+    CLIENT_LOADING_MAP = 5  # Match formed, client is loading
+    CLIENT_IN_GAME = 6
+    CLIENT_GAME_ENDING = 7  # Game over for this client's match
+    CLIENT_TERMINATING = 8
 
-class QGPServerProtocol(QuicConnectionProtocol):
+#defining the server protocol class
+class qgp_server(QuicConnectionProtocol):
+    #defining the class varaibles
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.current_dfa_state = ServerClientDFAState.AWAITING_CLIENT_HELLO
-        self.resolved_peer_address: Optional[Tuple[str, int]] = None
-        self.client_qgp_id: Optional[int] = None  # QGP-level identifier for the client
-        self.client_sw_version: Optional[int] = None
-        self.client_capabilities: Optional[str] = None
-        self.current_match_id: Optional[int] = None  # If the client is in a match
-        self.stream_buffers: Dict[int, bytes] = {}
+        self.client_state: Dict[int, server_client_dfa] = {}
+
+        #this is initialized to wait for the hello as no connections available when server first boots
+        self.current_dfa_state = server_client_dfa.AWAITING_CLIENT_HELLO
 
     def connection_made(self, transport):
         super().connection_made(transport)
+
         peername = transport.get_extra_info('peername')
-        self.resolved_peer_address = peername if peername else ("Unknown", 0)
-        print(f"[Server] New connection from: {self.resolved_peer_address}")
+        if peername:
+            self.resolved_peer_address = peername
+            print(f"[Server] New connection from: {self.resolved_peer_address}")
+        else:
+            self.resolved_peer_address = None  # Should ideally not happen
+            print("[Server] New connection, but peer address not available from transport.")
+
         ACTIVE_CLIENTS.add(self)
 
     def connection_lost(self, exc):
         super().connection_lost(exc)
-        print(f"[Server] Connection lost from: {self.resolved_peer_address} (QGP ID: {self.client_qgp_id})")
+        # Use the stored resolved_peer_address for logging if available
+        peer_display = self.resolved_peer_address if self.resolved_peer_address else "Unknown Peer"
+        print(f"[Server] Connection lost from: {peer_display}")
         ACTIVE_CLIENTS.discard(self)
-        # If in a match, notify other players
-        if self.current_match_id and self.client_qgp_id:
-            # This requires a way to find other clients in the same match_id
-            # For simplicity here, broadcast to all, game logic would filter
-            print(f"[Server] Broadcasting player {self.client_qgp_id} left match {self.current_match_id}")
 
-            #TODO: FIX THIS
-            # leave_header = qgp_header(QGP_VERSION, QGP_MSG_PLAYER_LEAVE_NOTIFY, 0, 1)
-            # leave_pdu = qgp_player_leave_notify(leave_header, self.client_qgp_id, 0)  # Reason 0 = generic disconnect
-            # broadcast_pdu_to_active_clients(leave_pdu, exclude_self=self)
-
-    def process_stream_buffer(self, stream_id: int):
-        buffer = self.stream_buffers.get(stream_id, b'')
-        peer_display = self.resolved_peer_address
-
-        processing_possible = True
-        while processing_possible and len(buffer) >= qgp_header.SIZE:
-            try:
-                temp_header_for_len, _ = qgp_header.unpack(buffer)
-                expected_total_pdu_len = temp_header_for_len.message_length
-
-                if len(buffer) >= expected_total_pdu_len:
-                    full_pdu_bytes = buffer[:expected_total_pdu_len]
-                    buffer = buffer[expected_total_pdu_len:]
-                    self.stream_buffers[stream_id] = buffer
-
-                    header_obj, payload_bytes = qgp_header.unpack(full_pdu_bytes)
-                    print(
-                        f"[Server] Processing PDU from {peer_display} (QGP ID: {self.client_qgp_id}): Type={header_obj.msg_type}, Len={header_obj.message_length}")
-                    self.handle_qgp_pdu(header_obj, payload_bytes, stream_id)
-                else:
-                    processing_possible = False  # Wait for more data
-            except ValueError as e:
-                print(
-                    f"[Server] PDU unpack error from {peer_display} (QGP ID: {self.client_qgp_id}): {e}. Clearing stream buffer.")
-                self.stream_buffers[stream_id] = b''
-                processing_possible = False
-            except Exception as e:
-                print(
-                    f"[Server] Unexpected error processing buffer for {peer_display} (QGP ID: {self.client_qgp_id}): {e}")
-                self.stream_buffers[stream_id] = b''
-                processing_possible = False
-
-    def handle_qgp_pdu(self, header_obj: qgp_header, payload_bytes: bytes, stream_id: int):
-        """Main QGP PDU handling logic based on DFA state."""
-        peer_display = self.resolved_peer_address
-        global NEXT_CLIENT_QGP_ID
-
-        if self.current_dfa_state == ServerClientDFAState.AWAITING_CLIENT_HELLO:
-            if header_obj.msg_type == QGP_MSG_CLIENT_HELLO:
-                client_hello = qgp_client_hello.unpack(header_obj, payload_bytes)
-                self.client_qgp_id = client_hello.client_id  # Or assign a new one: NEXT_CLIENT_QGP_ID; NEXT_CLIENT_QGP_ID += 1
-                self.client_sw_version = client_hello.client_version
-                self.client_capabilities = client_hello.capabilities
-                print(
-                    f"[Server] ClientHello from {peer_display}: QGP_ID={self.client_qgp_id}, SWVer={self.client_sw_version}, Caps='{self.client_capabilities}'")
-
-                # Respond with ServerHello
-                resp_header = qgp_header(QGP_VERSION, 0, 0, header_obj.priority)
-                server_hello_resp = qgp_server_hello(resp_header, server_id=9001, server_software_version=0x0100,
-                                                     status_code=qgp_server_hello.STATUS_OK_HANDSHAKE_COMPLETE,
-                                                     # Or proceed to auth
-                                                     capabilities_str="ServerReady;EchoCaps:" + self.client_capabilities)
-                self.send_qgp_pdu(server_hello_resp, stream_id_to_use=stream_id)
-                self.current_dfa_state = ServerClientDFAState.CLIENT_CONNECTED_IDLE  # Or AWAITING_CLIENT_AUTH
-                print(f"[Server] State for QGP_ID {self.client_qgp_id}: {self.current_dfa_state}")
-            else:
-                print(f"[Server] Error for {peer_display}: Expected ClientHello, got {header_obj.msg_type}")
-                self.send_error_and_close(stream_id, 1, "Expected ClientHello")  # Error code 1
-
-        elif self.current_dfa_state == ServerClientDFAState.CLIENT_CONNECTED_IDLE:
-            if header_obj.msg_type == QGP_MSG_TEXT_CHAT:
-                chat_pdu = qgp_text_chat.unpack(header_obj, payload_bytes)
-                print(f"[Server] Chat from QGP_ID {self.client_qgp_id}: '{chat_pdu.text_string}'")
-                # Broadcast to others (excluding sender)
-                broadcast_header = qgp_header(QGP_VERSION, 0, 0, 1)
-                broadcast_chat_pdu = qgp_text_chat(broadcast_header,
-                                                   text_string=f"Client {self.client_qgp_id}: {chat_pdu.text_string}")
-                broadcast_pdu_to_active_clients(broadcast_chat_pdu, exclude_self=self)
-            elif header_obj.msg_type == QGP_MSG_PLAYER_MOVEMENT:
-                move_pdu = qgp_player_movement.unpack(header_obj, payload_bytes)
-                print(
-                    f"[Server] Movement from QGP_ID {move_pdu.player_id}: Pos=({move_pdu.x_pos},{move_pdu.y_pos},{move_pdu.z_pos})")
-                # Echo movement to other clients (simplified game logic)
-                # In a real game, you'd update server state and send GameStateUpdate
-                broadcast_pdu_to_active_clients(move_pdu, exclude_self=self)
-            # Add handling for Q_REQ, CLIENT_LEAVE_REQUEST etc.
-            else:
-                print(
-                    f"[Server] Unhandled msg_type {header_obj.msg_type} in state CLIENT_CONNECTED_IDLE from QGP_ID {self.client_qgp_id}")
-                self.send_error_and_close(stream_id, 2, "Unexpected PDU in Idle state")
-
-        # Add elif for other states: IN_QUEUE, IN_GAME, etc.
-
+    #defining function to handle the incoming QUIC requests
     def quic_event_received(self, event: QuicEvent):
+        #letting quic do its normal handshake
         if isinstance(event, HandshakeCompleted):
-            self.current_dfa_state = ServerClientDFAState.AWAITING_CLIENT_HELLO  # Ready for QGP Hello
-            print(f"[Server] QUIC HandshakeCompleted with {self.resolved_peer_address}.")
+            print("HandshakeCompleted")
         elif isinstance(event, StreamDataReceived):
-            if event.stream_id not in self.stream_buffers: self.stream_buffers[event.stream_id] = b''
-            self.stream_buffers[event.stream_id] += event.data
-            if event.end_stream:  # Optional: process immediately if stream ended
-                self.process_stream_buffer(event.stream_id)
-            else:  # Or always process after appending
-                self.process_stream_buffer(event.stream_id)
+            print("StreamDataReceived")
+
+            #saving the stream_id and data
+            stream_id = event.stream_id
+            data = event.data
+
+            #upacking the headers and payload from
+            headers, payload = qgp_header.unpack(data)
+
+            if headers.msg_type == QGP_MSG_CLIENT_ERROR:
+                print("Error received")
+                error = qgp_errors.unpack(headers, payload)
+
+                print("Error code:", error.error_code)
+                print("Error length:", error.error_length)
+                print("Error message:", error.error_message)
+                print("Error severity:", error.severity)
+            else:
+
+                #checking the header message type
+                if headers.msg_type == QGP_MSG_CLIENT_HELLO:
+                    print("Hello packet received")
+
+                    #unpacking the client hello
+                    client_hello = qgp_client_hello.unpack(headers, payload)
+                    #getting the client information
+                    print("Client id", client_hello.client_id)
+                    print("Client version", client_hello.client_version)
+                    print("Client capabilities", client_hello.capabilities)
+
+                    #packing the server hello message
+                    server_hello_header = qgp_header(version=1, msg_type=QGP_MSG_SERVER_HELLO, msg_len=0, priority=0)
+                    server_hello_payload = qgp_server_hello(header= server_hello_header, server_id=1, server_software_version=1, capabilities_str=client_hello.capabilities)
+                    server_hello_packed = server_hello_payload.pack()
+
+                    #sending the packed response to the client
+                    print("Hello stream id", stream_id)
+                    self._quic.send_stream_data(stream_id, server_hello_packed, end_stream=False)
+                    print("Sent response")
+
+                    #updating the DFA
+                    self.current_dfa_state = server_client_dfa.AWAITING_FURTHER_CLIENT_ACTION
+                    print("Updated current dfa_state")
+
+                #setting the DFA check for when the client queues
+                elif self.current_dfa_state == server_client_dfa.CLIENT_IN_QUEUE:
+                    print("Client in queue")
+
+                #setting the DFA check for the client going into a match
+                elif self.current_dfa_state == server_client_dfa.CLIENT_IN_GAME:
+                    #checking what message was received
+                    if headers.msg_type == QGP_MSG_PLAYER_MOVEMENT:
+                        #unpacking the player movement
+                        player_move = qgp_player_movement.unpack(headers, payload)
+
+                        #outputting the player movement
+                        print(f"[INFO] Player ID: {player_move.player_id}")
+                        print(f"[INFO] Player Move Type: {player_move.movement_type}")
+                        print(f"[INFO] Player Direction: {player_move.direction}")
+                        print(f"[INFO] Player X Position: {player_move.x_position}")
+                        print(f"[INFO] Player Y Position: {player_move.y_position}")
+                        print(f"[INFO] Player Z Position: {player_move.z_position}")
+                        print(f"[INFO] Player Speed: {player_move.speed}")
+
+                    elif headers.msg_type == QGP_MSG_PLAYER_STATUS:
+                        #unpacking the player status
+                        player_status = qgp_player_status.unpack(headers, payload)
+
+                        #outputting the player status
+                        print(f"[INFO] Player ID: {player_status.player_id}")
+                        print(f"[INFO] Player Health: {player_status.player_health}")
+                        print(f"[INFO] Player Damage: {player_status.player_damage}")
+
+                    elif headers.msg_type == QGP_MSG_PLAYER_LEAVE:
+                        #unpacking the leave
+                        player_leave = qgp_player_leave.unpack(headers, payload)
+
+                        #outtputting the leave details
+                        print(f"[INFO] Player ID: {player_leave.player_id}")
+                        print(f"[INFO] Match ID: {player_leave.match_id}")
+                        print(f"[INFO] Player Team: {player_leave.team}")
+
+                    elif headers.msg_type == QGP_MSG_TEXT_CHAT:
+                        #unpacking the payload
+                        chat_payload = qgp_text_chat.unpack(headers, payload)
+
+                        #printing the message
+                        print(f"[INFO] Text: {chat_payload.text}")
+                        print(f"[INFO] Text Length: {chat_payload.text_length}")
+
+                    else:
+                        print("Client sent a packet outside of valid headers")
+                        print("Sending a server error")
+                        args = ["8", "0", "Client sent a packet outside of valid headers"]
+                        packaged_pdu = server_error_sender(args)
+                        # checking a pdu package was returned and if so sending it
+                        if packaged_pdu is None:
+                            print("Invalid arguments provided")
+                        else:
+                            sender(packaged_pdu)
+
+                        self.current_dfa_state = server_client_dfa.CLIENT_CONNECTED_IDLE
+
+
+                #checking the DFA for connected IDLE or after handshake
+                elif self.current_dfa_state == server_client_dfa.AWAITING_FURTHER_CLIENT_ACTION or self.current_dfa_state == server_client_dfa.CLIENT_CONNECTED_IDLE:
+                    #checking the message type of player joining
+                    if headers.msg_type == QGP_MSG_PLAYER_JOIN:
+                        #unpacking the details
+                        player_join = qgp_player_join.unpack(headers, payload)
+
+                        #outputting the details
+                        print(f"[INFO] Player ID: {player_join.player_id}")
+                        print(f"[INFO] Match ID: {player_join.match_id}")
+                        print(f"[INFO] Player Team: {player_join.team}")
+
+                    else:
+                        print("Client sent a packet outside of valid headers")
+                        print("Sending a server error")
+                        args = ["8", "0", "Client sent a packet outside of valid headers"]
+                        packaged_pdu = server_error_sender(args)
+                        # checking a pdu package was returned and if so sending it
+                        if packaged_pdu is None:
+                            print("Invalid arguments provided")
+                        else:
+                            sender(packaged_pdu)
+
+                        self.current_dfa_state = server_client_dfa.CLIENT_CONNECTED_IDLE
+
+                else:
+                    print("Client sent a packet outside of next expected state")
+                    print("Sending a server error")
+                    args = ["9", "0", "Received packet outside of next expected state"]
+                    packaged_pdu = server_error_sender(args)
+                    # checking a pdu package was returned and if so sending it
+                    if packaged_pdu is None:
+                        print("Invalid arguments provided")
+                    else:
+                        sender(packaged_pdu)
+
+                    self.current_dfa_state = server_client_dfa.CLIENT_CONNECTED_IDLE
+
+
+
         elif isinstance(event, ConnectionTerminated):
-            print(
-                f"[Server] QUIC ConnectionTerminated with {self.resolved_peer_address}. Reason: {event.reason_phrase}, Err: {event.error_code}")
-            # connection_lost will also be called to clean up from ACTIVE_CLIENTS.
+            print("ConnectionTerminated")
+            self.current_dfa_state = server_client_dfa.AWAITING_CLIENT_HELLO
 
-    def send_qgp_pdu(self, pdu_instance, stream_id_to_use: Optional[int] = None, end_stream=False):
-        peer_display = self.resolved_peer_address
-        try:
-            packed_pdu_bytes = pdu_instance.pack()
-            if stream_id_to_use is None:
-                stream_id = self._quic.get_next_available_stream_id(is_unidirectional=False)
-            else:
-                stream_id = stream_id_to_use
+    # Helper method to pack and send a QGP PDU.
+    async def send_qgp_pdu(self, pdu_instance, dfa_status, stream_id_to_use: Optional[int] = None, end_stream=False):
+        peer_display = self.resolved_peer_address if self.resolved_peer_address else "Peer"
 
-            pdu_type_to_log = pdu_instance.header.msg_type if hasattr(pdu_instance, 'header') else 'UnknownType'
-            print(
-                f"[Server] Sending PDU type {pdu_type_to_log} ({len(packed_pdu_bytes)} bytes) to {peer_display} (QGP ID: {self.client_qgp_id}) on stream {stream_id}")
-            self._quic.send_stream_data(stream_id, packed_pdu_bytes, end_stream=end_stream)
-        except Exception as e:
-            print(f"[Server] Error sending PDU to {peer_display} (QGP ID: {self.client_qgp_id}): {e}")
+        #wsetting the packed PDU
+        packed_pdu = pdu_instance
 
-    def send_error_and_close(self, stream_id: int, error_code: int, error_message: str):
-        err_header = qgp_header(QGP_VERSION, QGP_MSG_UNKNOWN_ERROR, 0, 10)  # High priority
-        err_pdu = qgp_errors(err_header, error_code, error_message)
-        self.send_qgp_pdu(err_pdu, stream_id_to_use=stream_id, end_stream=True)
-        self.close()  # Close the QUIC connection
+        #changing the DFA if needed
+        if dfa_status is not None:
+            self.current_dfa_state = dfa_status
 
+        #setting the stream is to use
+        if stream_id_to_use is None:
+           stream_id = self._quic.get_next_available_stream_id(
+                    is_unidirectional=False)  # Or True for one-way broadcast
+        else:
+            stream_id = stream_id_to_use
+        print("Stream id", stream_id)
 
-def broadcast_pdu_to_active_clients(pdu_instance, exclude_self: Optional[QGPServerProtocol] = None):
-    """Helper to broadcast a PDU to all active clients, optionally excluding one."""
-    clients_to_send_snapshot = list(ACTIVE_CLIENTS)
-    if not clients_to_send_snapshot:
-        # print("[Server Broadcast] No active clients to broadcast to.")
-        return
-
-    for client_protocol in clients_to_send_snapshot:
-        if client_protocol == exclude_self:
-            continue
-        if hasattr(client_protocol, 'send_qgp_pdu') and client_protocol._quic is not None and \
-                client_protocol.current_dfa_state not in [ServerClientDFAState.AWAITING_CLIENT_HELLO,
-                                                          ServerClientDFAState.CLIENT_TERMINATING]:  # Basic check
-            # Server initiates messages on new streams typically.
-            # Making a copy of the PDU is safer if its header gets modified by pack()
-            # For simple PDUs without complex internal state, direct send is often okay.
-            # Here, we assume PDU's pack method correctly sets header.
-            # A more robust way would be to re-create the PDU or header for each send if pack modifies it.
-            client_protocol.send_qgp_pdu(pdu_instance, stream_id_to_use=None)
+        #sending the packet to the client
+        self._quic.send_stream_data(stream_id, packed_pdu, end_stream=True)
+        self.transmit()
+        print("Sent response")
 
 
+
+# --- CLI Handling ---
 async def process_commands(command_queue: asyncio.Queue, loop: asyncio.AbstractEventLoop):
-    print(
-        "[Server CLI Processor] Ready. Type 'broadcast_chat <msg>', 'list_clients', 'start_game', 'end_game <match_id>', or 'exit'.")
-    current_match_sim_id = 1  # Simple match ID simulation
-
+    print("[Server CLI Processor] Ready for commands.")
     while True:
-        try:
-            command_line_input = await command_queue.get()
-            if command_line_input is None: break  # Shutdown signal
 
-            command_parts = command_line_input.split()
-            if not command_parts: command_queue.task_done(); continue
+        command_line_input = await command_queue.get()
+        if command_line_input is None:  # Sentinel for shutdown
+            print("[Server CLI Processor] Shutdown signal received.")
+            break
 
-            cmd = command_parts[0].lower()
-            args = command_parts[1:]
-            print(f"[Server CLI] Processing: '{cmd}' with args {args}")
-
-            if cmd == "broadcast_chat":
-                if args:
-                    message_text = " ".join(args)
-                    header = qgp_header(QGP_VERSION, 0, 0, 1)
-                    chat_pdu = qgp_text_chat(header, text_string=f"[SERVER_BROADCAST]: {message_text}")
-                    broadcast_pdu_to_active_clients(chat_pdu)
-                else:
-                    print("[Server CLI] Usage: broadcast_chat <message>")
-
-            elif cmd == "list_clients":
-                # ... (same as your code) ...
-                if not ACTIVE_CLIENTS:
-                    print("[Server CLI] No clients.")
-                else:
-                    print("[Server CLI] Active clients:")
-                    for i, cp in enumerate(ACTIVE_CLIENTS):
-                        pid = cp.resolved_peer_address
-                        qid = cp.client_qgp_id
-                        print(f"  {i + 1}. {pid} (QGP_ID: {qid}, State: {cp.current_dfa_state})")
-
-            elif cmd == "start_game":  # Simplified game start
-                if len(ACTIVE_CLIENTS) < 1:  # Need at least 1 for this demo
-                    print("[Server CLI] Not enough players to start a game.")
-                else:
-                    player_qgp_ids = [c.client_qgp_id for c in ACTIVE_CLIENTS if c.client_qgp_id is not None]
-                    if not player_qgp_ids:
-                        print("[Server CLI] No clients with assigned QGP IDs to start game.")
-                        command_queue.task_done();
-                        continue
-
-                    print(
-                        f"[Server CLI] Starting simulated game (Match ID: {current_match_sim_id}) for players: {player_qgp_ids}")
-                    start_header = qgp_header(QGP_VERSION, 0, 0, 5)
-                    game_start_pdu = qgp_game_start(start_header, match_id=current_match_sim_id,
-                                                           match_type=0, match_map_id=1, match_mode_id=1,
-                                                           player_ids=player_qgp_ids)
-                    broadcast_pdu_to_active_clients(game_start_pdu)
-                    for client_p in ACTIVE_CLIENTS:  # Update server-side state for clients
-                        client_p.current_match_id = current_match_sim_id
-                        client_p.current_dfa_state = ServerClientDFAState.CLIENT_IN_GAME  # Example state
-                    current_match_sim_id += 1
-
-            elif cmd == "end_game":  # Simplified game end
-                if not args or not args[0].isdigit():
-                    print("[Server CLI] Usage: end_game <match_id_to_end>")
-                else:
-                    match_id_to_end = int(args[0])
-                    print(f"[Server CLI] Ending simulated game for Match ID: {match_id_to_end}")
-
-                    clients_in_match = [c for c in ACTIVE_CLIENTS if hasattr(c,
-                                                                             'current_match_id') and c.current_match_id == match_id_to_end and c.client_qgp_id is not None]
-                    if not clients_in_match:
-                        print(f"[Server CLI] No active clients found for Match ID: {match_id_to_end}")
-                        command_queue.task_done();
-                        continue
-
-                    p_ids = [c.client_qgp_id for c in clients_in_match]
-                    # Dummy stats
-                    p_kills = [len(p_ids) - i - 1 for i in range(len(p_ids))]
-                    p_deaths = [i for i in range(len(p_ids))]
-                    p_assists = [1] * len(p_ids)
-
-                    end_header = qgp_header(QGP_VERSION, 0, 0, 5)
-                    game_end_pdu = qgp_game_end(end_header, match_id=match_id_to_end, match_type=0,
-                                                       match_duration=300, match_map_id=1, match_mode_id=1,
-                                                       player_ids=p_ids, player_kills=p_kills, player_deaths=p_deaths,
-                                                       player_assists=p_assists, player_teamkills=[0] * len(p_ids),
-                                                       player_teamdeaths=[0] * len(p_ids),
-                                                       player_teamassists=[0] * len(p_ids))
-                    for client_p in clients_in_match:
-                        client_p.send_qgp_pdu(game_end_pdu)  # Send specifically to clients in this match
-                        client_p.current_dfa_state = ServerClientDFAState.CLIENT_CONNECTED_IDLE  # Reset state
-                        client_p.current_match_id = None
-
-            elif cmd == "exit" or cmd == "quit":
-                print("[Server CLI] Exit command. Signalling server and tasks to shutdown...")
-                await command_queue.put(None)  # Signal self to exit loop
-                # Cancel other tasks, including potentially the server listener
-                current_task = asyncio.current_task()
-                tasks = [t for t in asyncio.all_tasks(loop=loop) if t is not current_task]
-                for task in tasks:
-                    print(f"[Server CLI] Cancelling task: {task.get_name()}")
-                    task.cancel()
-                break
-            else:
-                print(f"[Server CLI] Unknown command: {cmd}")
-
+        command_parts = command_line_input.split()
+        if not command_parts:
             command_queue.task_done()
-        except Exception as e:
-            print(f"[Server CLI Processor] Error: {e}")
-            # Ensure task_done is called if an item was taken but an error occurred
-            if 'command_queue' in locals() and hasattr(command_queue,
-                                                       'task_done') and command_queue.unfinished_tasks > 0:
-                command_queue.task_done()
+            continue
+
+        cmd = command_parts[0].lower()
+        args = command_parts[1:]
+
+        print(f"[Server CLI Processor] Processing command: '{cmd}' with args {args}")
+
+        if cmd == "broadcast_chat":
+            if args:
+                message_text = " ".join(args)
+                print(f"[Server CLI] Broadcasting chat: '{message_text}'")
+                chat_header = qgp_header(
+                    version= 1,
+                    msg_type=0,
+                    msg_len=0,
+                    priority=1
+                )
+                chat_pdu = qgp_text_chat(chat_header, text_length= len(message_text), text=message_text)
+
+                clients_to_send_snapshot = list(ACTIVE_CLIENTS)
+                if not clients_to_send_snapshot:
+                    print("[Server CLI] No active clients to broadcast to.")
+                for client_protocol in clients_to_send_snapshot:
+                    if hasattr(client_protocol, 'send_qgp_pdu') and client_protocol._quic is not None:
+                        # Use asyncio.create_task for safety from within another coroutine
+                        asyncio.create_task(client_protocol.send_qgp_pdu(chat_pdu, stream_id_to_use=None))
+                    else:
+                        peer_addr_display = client_protocol.resolved_peer_address if hasattr(client_protocol,
+                                                                                             'resolved_peer_address') and client_protocol.resolved_peer_address else "Unknown Client"
+                        print(
+                            f"[Server CLI] Cannot send to client {peer_addr_display}: missing send_qgp_pdu or not fully connected.")
+            else:
+                print("[Server CLI] Usage: broadcast_chat <message>")
+
+        #sending the error command
+        elif cmd == "send_error":
+            packaged_pdu = server_error_sender(args)
+            dfa = server_client_dfa.AWAITING_CLIENT_HELLO
+
+            #checking a pdu package was returned and if so sending it
+            if packaged_pdu is None:
+                print("Invalid arguments provided")
+            else:
+                sender(packaged_pdu, dfa)
+        #sending the chat command
+        elif cmd == "chat":
+            packaged_pdu = client_chat(args)
+
+            # checking a pdu package was returned and if so sending it
+            if packaged_pdu is None:
+                print("Invalid arguments provided")
+            else:
+                sender(packaged_pdu)
+
+        # sending the start_game command
+        elif cmd == "start_game":
+            packaged_pdu = start_game(args)
+            dfa = server_client_dfa.CLIENT_IN_GAME
+
+            # checking a pdu package was returned and if so sending it
+            if packaged_pdu is None:
+                print("Invalid arguments provided")
+            else:
+                sender(packaged_pdu, dfa)
+
+        # sending the player_move command
+        elif cmd == "end_game":
+            packaged_pdu = end_game(args)
+            dfa = server_client_dfa.CLIENT_GAME_ENDING
+
+            # checking a pdu package was returned and if so sending it
+            if packaged_pdu is None:
+                print("Invalid arguments provided")
+            else:
+                sender(packaged_pdu)
+
+        elif cmd == "list_clients":
+            if not ACTIVE_CLIENTS:
+                print("[Server CLI] No clients currently connected.")
+            else:
+                print("[Server CLI] Active clients:")
+                for i, client_proto_instance in enumerate(ACTIVE_CLIENTS):
+                    peer_addr_display = client_proto_instance.resolved_peer_address if hasattr(
+                        client_proto_instance,
+                        'resolved_peer_address') and client_proto_instance.resolved_peer_address else "Address N/A"
+                    client_qgp_id_display = client_proto_instance.client_qgp_id if hasattr(client_proto_instance,
+                                                                                           'client_qgp_id') and client_proto_instance.client_qgp_id else "QGP_ID N/A"
+                    print(f"  {i + 1}. {peer_addr_display} (QGP ID: {client_qgp_id_display})")
+
+        elif cmd == "exit" or cmd == "quit":
+            print("[Server CLI] Exit command received from CLI. Signalling server shutdown...")
+            # Signal all tasks to cancel, including the server listener if possible
+            current_task = asyncio.current_task()
+            tasks = [t for t in asyncio.all_tasks(loop=loop) if t is not current_task]
+            for task in tasks:
+                task.cancel()
+            await command_queue.put(None)  # Ensure this processor exits its loop
+            break
+        else:
+            print(f"[Server CLI] Unknown command: {cmd}")
+
+        command_queue.task_done()
+
 
 
 def cli_input_loop(loop: asyncio.AbstractEventLoop, command_queue: asyncio.Queue):
-    # ... (same as your version, ensure it puts None on EOF/KeyboardInterrupt) ...
-    print("\n[Server CLI] Type 'broadcast_chat <msg>', 'list_clients', 'start_game', 'end_game <match_id>', or 'exit'.")
+    print("\n[Server CLI] Type 'broadcast_chat <message>', 'list_clients', or 'exit'.")
     try:
         while True:
-            command_line = input("QGP Server> ")
-            if not command_line: continue
-            if loop.is_closed(): print("[Server CLI] Event loop closed."); break
+            command_line = input("QGP Server> ")  # This is blocking
+            if not command_line:  # Handle empty input
+                continue
+            if loop.is_closed():
+                print("[Server CLI] Event loop closed, exiting CLI input.")
+                break
+
             if command_line.lower() in ["exit", "quit"]:
-                asyncio.run_coroutine_threadsafe(command_queue.put(None), loop);
+                # Signal the processor to stop, and then this thread will exit
+                asyncio.run_coroutine_threadsafe(command_queue.put(None), loop)
                 break
             asyncio.run_coroutine_threadsafe(command_queue.put(command_line), loop)
     except EOFError:
-        print("[Server CLI] EOF, signalling exit.")
-        if not loop.is_closed(): asyncio.run_coroutine_threadsafe(command_queue.put(None), loop)
+        print("[Server CLI] EOF received, signalling exit.")
+        if not loop.is_closed():
+            asyncio.run_coroutine_threadsafe(command_queue.put(None), loop)
     except KeyboardInterrupt:
-        print("[Server CLI] Ctrl+C in CLI, signalling exit.")
-        if not loop.is_closed(): asyncio.run_coroutine_threadsafe(command_queue.put(None), loop)
+        print("[Server CLI] KeyboardInterrupt in CLI, signalling exit.")
+        if not loop.is_closed():
+            asyncio.run_coroutine_threadsafe(command_queue.put(None), loop)
     except Exception as e:
-        print(f"[Server CLI] Input loop error: {e}")
-        if not loop.is_closed(): asyncio.run_coroutine_threadsafe(command_queue.put(None), loop)
+        print(f"[Server CLI] Error in input loop: {e}")
+        if not loop.is_closed():
+            asyncio.run_coroutine_threadsafe(command_queue.put(None), loop)  # Try to signal exit
     finally:
         print("[Server CLI] Input loop ended.")
 
+#defining function to send the package pdu
+def sender(packaged_pdu, dfa_status = None):
+    #getting the active clients
+    clients_to_send_snapshot = list(ACTIVE_CLIENTS)
+    if not clients_to_send_snapshot:
+        print("[Server CLI] No active clients to broadcast to.")
 
-async def main_server_with_cli():
-    configuration = QuicConfiguration(
-        alpn_protocols=QGP_ALPN,  # Use constants
+    #looping through the active clients and sending the error
+    print(clients_to_send_snapshot)
+    for client_protocol in clients_to_send_snapshot:
+        if hasattr(client_protocol, 'send_qgp_pdu') and client_protocol._quic is not None:
+            # Use asyncio.create_task for safety from within another coroutine
+            asyncio.create_task(client_protocol.send_qgp_pdu(packaged_pdu, dfa_status=dfa_status, stream_id_to_use=None))
+
+        else:
+            peer_addr_display = client_protocol.resolved_peer_address if hasattr(client_protocol,
+                                                                                 'resolved_peer_address') and client_protocol.resolved_peer_address else "Unknown Client"
+            print(
+                f"[Server CLI] Cannot send to client {peer_addr_display}: missing send_qgp_pdu or not fully connected.")
+
+
+#defining the main function that does not have the CLI
+async def main():
+    config = QuicConfiguration(
+        alpn_protocols=QGP_ALPN,
         is_client=False,
     )
-    configuration.load_cert_chain(certfile='test_cert.pem', keyfile='test_private_key.pem')  # Ensure these exist
+
+    #defining the ssl cert and key
+    config.load_cert_chain(certfile='test_cert.pem', keyfile='test_private_key.pem')
+
+    #starting the server
+    print("Server starting")
+    await serve(
+        host = QGP_HOST,
+        port = QGP_PORT,
+        configuration = config,
+        create_protocol=qgp_server
+    )
+
+    #running forever
+    await asyncio.Future()
+
+
+async def main_server_with_cli():
+    #asking user for host and port
+    host = input("[Server CLI] Host IP: ")
+    port = input("[Server CLI] Port number or leave blank for default: ")
+    if port == "":
+        port = 5544
+    else:
+        port = int(port)
+
+    configuration = QuicConfiguration(
+        alpn_protocols=QGP_ALPN,
+        is_client=False,
+    )
+
+    #setting the idle timeout
+    configuration.idle_timeout = 1200
+
+    # Ensure paths to cert and key are correct
+    configuration.load_cert_chain(certfile='test_cert.pem', keyfile='test_private_key.pem')
 
     command_queue = asyncio.Queue()
     loop = asyncio.get_running_loop()
@@ -349,57 +463,52 @@ async def main_server_with_cli():
 
     processor_task = asyncio.create_task(process_commands(command_queue, loop))
 
-    print(f"Starting QGP Server on localhost:5544 with CLI...")
+    #print(f"Starting QGP Server on {qgp_constants.QGP_SERVER_HOST}:{qgp_constants.QGP_DEFAULT_PORT} with CLI...")
 
-    server_transport_protocol = None
+    server_transport = None
     try:
-        server_transport_protocol = await serve(
-            host="localhost",
-            port=5544,
+        await serve(
+            host=host,
+            port=port,
             configuration=configuration,
-            create_protocol=QGPServerProtocol,  # Use your renamed class
+            create_protocol=qgp_server
         )
-        # Keep the server running until the command processor task is done (e.g., by 'exit' command)
+
         await processor_task
     except asyncio.CancelledError:
         print("[Server Main] Main server task or command processor was cancelled.")
-    except OSError as e:  # E.g. Address already in use
-        print(f"[Server Main] OS Error: {e}. Is the port already in use?")
     except Exception as e:
         print(f"[Server Main] Exception in main server execution: {e}")
     finally:
         print("[Server Main] Shutting down...")
-        if processor_task and not processor_task.done():
-            processor_task.cancel()
+        if not processor_task.done():
+            processor_task.cancel()  # Ensure processor task is stopped
             try:
-                await processor_task
+                await processor_task  # Allow it to process the cancellation
             except asyncio.CancelledError:
-                pass  # Expected cancellation
+                pass  # Expected
 
-        if server_transport_protocol:  # This is the transport object returned by aioquic.serve
-            print("[Server Main] Closing server listener.")
-            server_transport_protocol.close()
-            # For servers, wait_closed might not be directly on the transport from serve()
-            # but rather you'd manage the lifecycle of the server task itself.
-            # For now, closing the transport is the primary step.
+        if server_transport:  # aioquic's serve returns a transport which can be closed
+            print("[Server Main] Closing server transport.")
+            server_transport.close()
+            # For newer asyncio/aioquic that might return a Server object:
+            # await server_transport.wait_closed()
 
-        # Wait for CLI thread
+        # Ensure CLI thread is encouraged to exit if it hasn't
+        # The cli_input_loop should exit when it puts None on the queue or on exception
         if cli_thread.is_alive():
-            print("[Server Main] Waiting for CLI thread to join...")
-            cli_thread.join(timeout=2.0)  # Give it a couple of seconds
+            print("[Server Main] Waiting for CLI thread to join (max 1s)...")
+            cli_thread.join(timeout=1.0)  # Give it a moment to exit
             if cli_thread.is_alive():
                 print("[Server Main] CLI thread did not exit gracefully.")
+
         print("[Server Main] Server fully shut down.")
 
-
+#defining the debug function
 if __name__ == "__main__":
-    logging.basicConfig(
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-        level=logging.INFO,
-    )
     try:
+        #asyncio.run(main())
         asyncio.run(main_server_with_cli())
+    #catching keyboard interrupts to terminate the server
     except KeyboardInterrupt:
-        print("\n[Main] Server process interrupted. Shutting down...")
-    except Exception as e:
-        print(f"[Main] Top-level server error: {e}")
+        print("Server stopping")
