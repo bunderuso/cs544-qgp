@@ -86,7 +86,7 @@ Data types:
 - match_players = integer
 - match_player_ids = list of integers
   
-## end_game  FINISH ME
+## end_game
 Command: `end_game`
 Arguments in order: `match_id match_type match_duration match_map match_mode match_team match_players match_player_ids, match_player_kills, match_player_deaths, match_player_assists, match_player_teamkills, match_player_teamdeaths, match_player_teamassists`
 Data types:
